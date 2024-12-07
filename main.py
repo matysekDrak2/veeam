@@ -1,12 +1,28 @@
+import datetime
 import os
-import shutil
 
 import arguments
 from time import sleep
 from log import Logger
 
 def copy_file(src: str, dst: str):
-    shutil.copy2(src, dst, follow_symlinks=False)
+    attribute_list = os.stat(src, follow_symlinks=False)
+    if os.path.islink(src):
+        os.symlink(os.readlink(src), dst)
+    else:
+        with open(src, "rb") as read_file, open(dst, "wb") as write_file:
+            while block := read_file.read(2**16):
+                write_file.write(block)
+        os.chmod(dst, attribute_list.st_mode, follow_symlinks=False)
+        os.utime(dst, (attribute_list.st_atime, attribute_list.st_mtime), follow_symlinks=False)
+        formated_time = datetime.datetime.utcfromtimestamp(attribute_list.st_ctime).isoformat().encode()
+        os.setxattr(dst, "user.creation_time", formated_time, follow_symlinks=False)
+
+    # this operation can be ran on both links and files.
+    # others are only for files and will crash it ran on syslink
+    os.chown(dst, attribute_list.st_uid, attribute_list.st_gid, follow_symlinks=False)
+
+
 
 def look_thru_replica(replica_root_path: str, source_root_path: str, logger: Logger, path: str = ''):
     """Checks all files on replica and marks deprecated ones for deletion"""
@@ -36,6 +52,11 @@ def look_thru_source(source_root_path: str, replica_root_path:str, logger: Logge
                 logger.log(f"CREATE dir {os.path.join(replica_root_path, file)}")
             look_thru_source(source_root_path, replica_root_path, logger, os.path.join(path, file))
 
+        elif os.path.islink(os.path.join(full_path, file)):
+            if os.path.exists(os.path.join(replica_root_path, file)) and os.path.islink(os.path.join(replica_root_path, file)) and os.readlink(os.path.join(full_path, file)) == os.readlink(os.path.join(replica_root_path, file)):
+                continue
+            copy_file(os.path.join(full_path, file), os.path.join(replica_root_path, file))
+            logger.log(f"LINKING link from {os.path.join(full_path, file)} on {os.readlink(os.path.join(full_path, file))}")
         else:
             if not os.path.exists(os.path.join(replica_root_path, path, file)):
                 logger.log(f"COPY file from {os.path.join(full_path, file)} to {os.path.join(replica_root_path, path, file)}")
