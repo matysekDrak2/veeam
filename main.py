@@ -6,6 +6,7 @@ from time import sleep
 from log import Logger
 
 def copy_file(src: str, dst: str):
+    """Copy file from src to dst, keep all relevant metadata and permissions. If src isnt a file but a link create new link and maintain as much data as possible"""
     attribute_list = os.stat(src, follow_symlinks=False)
     if os.path.islink(src):
         os.symlink(os.readlink(src), dst)
@@ -55,8 +56,11 @@ def look_thru_source(source_root_path: str, replica_root_path:str, logger: Logge
         elif os.path.islink(os.path.join(full_path, file)):
             if os.path.exists(os.path.join(replica_root_path, file)) and os.path.islink(os.path.join(replica_root_path, file)) and os.readlink(os.path.join(full_path, file)) == os.readlink(os.path.join(replica_root_path, file)):
                 continue
+            if not os.path.exists(os.path.join(replica_root_path, file)) or not os.path.islink(os.path.join(replica_root_path, file)):
+                logger.log(f"CREATE link from {os.path.join(full_path, file)} on {os.readlink(os.path.join(full_path, file))}")
+            else:
+                logger.log(f"COPY link from {os.path.join(full_path, file)} on {os.readlink(os.path.join(full_path, file))}")
             copy_file(os.path.join(full_path, file), os.path.join(replica_root_path, file))
-            logger.log(f"LINKING link from {os.path.join(full_path, file)} on {os.readlink(os.path.join(full_path, file))}")
         else:
             if not os.path.exists(os.path.join(replica_root_path, path, file)):
                 logger.log(f"COPY file from {os.path.join(full_path, file)} to {os.path.join(replica_root_path, path, file)}")
@@ -64,7 +68,7 @@ def look_thru_source(source_root_path: str, replica_root_path:str, logger: Logge
                 continue
             if os.path.getmtime(os.path.join(full_path, file)) == os.path.getmtime(os.path.join(replica_root_path, path, file)):
                 continue
-            logger.log(f"REPLACE file from {os.path.join(full_path, file)} on {os.path.join(replica_root_path, path, file)}")
+            logger.log(f"COPY file from {os.path.join(full_path, file)} on {os.path.join(replica_root_path, path, file)}")
             copy_file(os.path.join(full_path, file), os.path.join(replica_root_path, path, file))
 
 
@@ -73,6 +77,9 @@ def main():
     logger = Logger(args.log)
 
     while True:
+        # Look threw replica is first to keep open possibility for optimizations if source will be on different host then replica
+        # It that becomes the case we may add a hash of file to metadata on replica and check if file has been moved and move it instead of delete and copy again
+        # hash and moving isn't implemented here cause the fastest hash seems to be zlib.adler32 with speeds up to 2GB/s (our tests) and copy speed seems to be roughly equal, thus it would only slow us down.
         look_thru_replica(args.replica, args.source, logger)
         look_thru_source(args.source, args.replica, logger)
         sleep(args.timeout)
