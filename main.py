@@ -11,9 +11,12 @@ def copy_file(src: str, dst: str):
     if os.path.islink(src):
         os.symlink(os.readlink(src), dst)
     else:
-        with open(src, "rb") as read_file, open(dst, "wb") as write_file:
-            while block := read_file.read(2**16):
-                write_file.write(block)
+        if os.path.isfile(src):
+            with open(src, "rb") as read_file, open(dst, "wb") as write_file:
+                while block := read_file.read(2**16):
+                    write_file.write(block)
+        else:
+            os.makedirs(dst, exist_ok=True)
         os.chmod(dst, attribute_list.st_mode, follow_symlinks=False)
         os.utime(dst, (attribute_list.st_atime, attribute_list.st_mtime), follow_symlinks=False)
         formated_time = datetime.datetime.utcfromtimestamp(attribute_list.st_ctime).isoformat().encode()
@@ -49,7 +52,7 @@ def look_thru_source(source_root_path: str, replica_root_path:str, logger: Logge
     for file in os.listdir(full_path):
         if os.path.isdir(os.path.join(full_path, file)):
             if not os.path.exists(os.path.join(replica_root_path, file)) or not os.path.isdir(os.path.join(full_path, file)):
-                os.makedirs(os.path.join(replica_root_path, file), exist_ok=True)
+                copy_file(os.path.join(source_root_path, file), os.path.join(replica_root_path, file))
                 logger.log(f"CREATE dir {os.path.join(replica_root_path, file)}")
             look_thru_source(source_root_path, replica_root_path, logger, os.path.join(path, file))
 
